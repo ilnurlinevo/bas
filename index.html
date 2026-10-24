@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Мой голос">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Мой голос</title>
+<style>
+:root{--bg:#000;--tile:#1e3a5f;--accent:#ffd54f;--danger:#b00020;--ok:#2e5e3e;--sc:1}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:#fff;font-family:-apple-system,Roboto,Arial,sans-serif;touch-action:manipulation}
+#app{display:flex;flex-direction:column;height:100%;padding:calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px);gap:8px}
+#main{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:0}
+#bar{display:flex;gap:8px}
+.btn{font:inherit;font-weight:700;color:#fff;background:var(--tile);border:3px solid transparent;border-radius:16px;padding:14px 10px;min-height:calc(88px*var(--sc));font-size:calc(26px*var(--sc));line-height:1.15;text-align:center;white-space:pre-line;cursor:pointer}
+.btn.sm{min-height:calc(64px*var(--sc));font-size:calc(20px*var(--sc))}
+.btn.danger{background:var(--danger);min-height:calc(64px*var(--sc));font-size:calc(21px*var(--sc))}
+.btn.ok{background:var(--ok)}.btn.gray{background:#333}
+.btn.key{flex:1;min-width:0;padding:0;min-height:calc(58px*var(--sc));font-size:calc(24px*var(--sc))}
+.btn.grow{flex:1}.btn.sq{width:calc(70px*var(--sc));padding:0;background:#333;color:var(--accent);font-size:calc(30px*var(--sc))}
+.btn.home{flex:1;min-height:80px}
+.btn.hl{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent);filter:brightness(1.4)}
+.row{display:flex;gap:6px}.row>.btn{flex:1}.row>.btn.sq{flex:none}
+.list{display:flex;flex-direction:column;gap:8px}
+.tbox{border:2px solid var(--accent);border-radius:12px;padding:12px;min-height:100px;font-size:calc(26px*var(--sc));word-break:break-word}
+.tbox.ph{color:#888}.status{color:var(--accent);font-size:18px}.hint{color:#ccc;font-size:19px;padding:4px}.warn{color:#ffb74d;font-size:17px}
+h3{color:var(--accent);margin:10px 0 2px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.box{background:#111;border:2px solid var(--accent);border-radius:16px;padding:16px;width:100%;max-width:480px;display:flex;flex-direction:column;gap:10px;font-size:22px;white-space:pre-line}
+.box input{font-size:22px;padding:10px;border-radius:8px;border:1px solid #888;background:#222;color:#fff}
+#start{position:fixed;inset:0;background:#000;z-index:100;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;padding:20px;text-align:center}
+#hud{position:fixed;right:8px;bottom:calc(env(safe-area-inset-bottom) + 90px);width:120px;z-index:40;display:none;background:#000c;border:1px solid #888;border-radius:8px;padding:4px;font-size:13px}
+#hud video{width:100%;transform:scaleX(-1);border-radius:6px;display:block}
+#hud .pb{height:10px;background:#333;border-radius:5px;margin-top:4px;overflow:hidden}#hud .pb i{display:block;height:100%;width:0;background:var(--accent)}
+</style>
+</head>
+<body>
+<div id="app"><button class="btn danger" id="sos">СРОЧНО: МНЕ ТРУДНО ДЫШАТЬ</button><div id="main"></div><div id="bar"></div></div>
+<div id="hud"><video id="cam" playsinline muted></video><div class="pb"><i id="pb"></i></div><div id="hs">камера выкл.</div></div>
+<div id="start"><h1>Мой голос</h1><p class="hint">Нажмите кнопку, чтобы включить звук и приложение.</p><button class="btn ok" id="go">НАЧАТЬ</button></div>
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const LS={get(k,d){try{const v=localStorage.getItem('bas.'+k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem('bas.'+k,JSON.stringify(v))}catch(e){}}};
+const S=Object.assign({mode:'direct',blink:false,scanMs:2000,holdMs:600,sens:0.5,rate:0.9,volume:1,scale:1,preview:true},LS.get('settings',{}));
+const D={phrases:LS.get('phrases',[]),favs:LS.get('favs',[]),contacts:LS.get('contacts',[])};
+const save=()=>{LS.set('settings',S);LS.set('phrases',D.phrases);LS.set('favs',D.favs);LS.set('contacts',D.contacts)};
+
+const EMERGENCY='Мне трудно дышать. Мне нужна помощь. Срочно!';
+const NEEDS=[
+['Самочувствие',['Мне трудно дышать.','Мне больно.','Мне нужна помощь.','Позови близкого.','Позови медицинского работника.','Мне жарко.','Мне холодно.','Я устала.']],
+['Еда и вода',['Хочу пить.','Хочу есть.','Покорми меня, пожалуйста.','Дай воды.','Я наелась.','Я больше не хочу.']],
+['Туалет и гигиена',['Хочу в туалет.','Помоги мне умыться.','Нужно поменять одежду.','Мне неудобно.']],
+['Положение тела',['Помоги мне сесть.','Помоги мне лечь.','Поверни меня, пожалуйста.','Поправь подушку.','Мне нужно изменить положение.']],
+['Уход и комфорт',['Включи свет.','Выключи свет.','Открой окно.','Закрой окно.','Включи телевизор.','Выключи телевизор.','Сделай массаж, пожалуйста.','Поправь одеяло.']]];
+const TALK=['Привет!','Доброе утро.','Как у тебя дела?','Спасибо.','Я тебя люблю.','Мне приятно с тобой общаться.','Расскажи, что нового.','Да.','Нет.','Не знаю.','Подожди, пожалуйста.','Я хочу тебе кое-что сказать.'];
+const STARTERS=['Я','Мне','Хочу','Пожалуйста'];
+const WORDS='пожалуйста спасибо привет здравствуй хочу нужно нужна помоги помощь позови принеси включи выключи открой закрой подай дай воды воду есть пить чай кофе суп хлеб лекарство таблетку врача доктора скорую больно холодно жарко устала сегодня завтра вчера сейчас потом позже быстро медленно подожди приходи приезжай позвони напиши когда где почему как что кто дома дела люблю скучаю рада хорошо плохо лучше хуже спать лечь сесть встать подушку одеяло свет окно дверь телевизор музыку тише громче очень немного ничего всё тебя тебе меня мне нас нам вас вам можно нельзя надо могу можешь знаю знаешь думаю понимаю спросить сказать скажи расскажи посмотри подойди останься поправь поверни'.split(' ');
+const LETTERS='ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮЁ'.split('');
+
+/* ---------- речь ---------- */
+let last='';
+function speak(t,loud,times){
+  if(!t||!window.speechSynthesis)return; last=t;
+  const ss=speechSynthesis; ss.cancel();
+  const v=ss.getVoices().find(x=>x.lang&&x.lang.toLowerCase().startsWith('ru'));
+  for(let i=0;i<(times||1);i++){const u=new SpeechSynthesisUtterance(t);u.lang='ru-RU';if(v)u.voice=v;u.rate=S.rate;u.volume=loud?1:S.volume;ss.speak(u);}
+}
+
+/* ---------- состояние и утилиты ---------- */
+const ST={screen:'home',cat:null,contact:-1,msg:null,text:'',emode:'save',status:''};
+function el(tag,cls,txt,fn){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;if(fn)e.onclick=fn;return e}
+const btn=(t,cls,fn)=>el('button','btn '+(cls||''),t,fn);
+const uniq=a=>[...new Set(a)];
+function toggleFav(p){const i=D.favs.indexOf(p);i<0?D.favs.push(p):D.favs.splice(i,1);save()}
+function addPhrase(t){t=t.trim();if(!t||D.phrases.includes(t))return false;D.phrases.push(t);save();return true}
+function removePhrase(p){D.phrases=D.phrases.filter(x=>x!==p);D.favs=D.favs.filter(x=>x!==p);save()}
+
+function modal(content,buttons){
+  closeModal();const o=el('div','modal'),b=el('div','box');
+  content.forEach(c=>b.append(c));
+  const r=el('div','row');
+  buttons.forEach(([t,fn,cls])=>r.append(btn(t,'sm '+(cls||''),()=>{closeModal();if(fn)fn();rescan()})));
+  b.append(r);o.append(b);document.body.append(o);rescan();
+}
+function closeModal(){document.querySelectorAll('.modal').forEach(m=>m.remove())}
+function confirmDlg(text,okLabel,onOk){modal([el('div','',text)],[[okLabel,onOk,'ok'],['ОТМЕНА',null,'gray']])}
+
+function back(){
+  if(ST.screen==='needs'&&ST.cat!==null)ST.cat=null;
+  else if(ST.screen==='msg'&&ST.msg!==null)ST.msg=null;
+  else if(ST.screen==='msg'&&ST.contact>=0)ST.contact=-1;
+  else if(ST.screen==='edit')ST.screen=ST.emode==='msg'?'msg':'mine';
+  else ST.screen='home';
+  render();
+}
+function phraseList(items,o){
+  o=o||{};const w=el('div','list');
+  items.forEach(p=>{
+    const row=el('div','row');
+    row.append(btn(p,'grow',()=>o.pick?o.pick(p):speak(p)));
+    if(!o.pick)row.append(btn(D.favs.includes(p)?'★':'☆','sq',()=>{toggleFav(p);render()}));
+    if(o.del)row.append(btn('✕','sq',()=>confirmDlg('Удалить фразу?\n'+p,'УДАЛИТЬ',()=>{removePhrase(p);render()})));
+    w.append(row);
+  });return w;
+}
+
+/* ---------- экраны ---------- */
+function render(){
+  document.documentElement.style.setProperty('--sc',S.scale);
+  const m=$('#main'),bar=$('#bar');m.innerHTML='';bar.innerHTML='';
+  const s=ST.screen;
+  if(s==='home'){
+    [['МОИ ПОТРЕБНОСТИ','needs'],['ОБЩЕНИЕ','talk'],['СООБЩЕНИЯ БЛИЗКИМ','msg'],['МОИ ФРАЗЫ','mine']].forEach(([t,k])=>m.append(btn(t,'home',()=>{ST.screen=k;render()})));
+    m.append(btn('Настройки','gray sm',()=>{ST.screen='settings';render()}));
+  }else if(s==='needs'){
+    if(ST.cat===null)NEEDS.forEach(([n])=>m.append(btn(n,'',()=>{ST.cat=n;render()})));
+    else{const it=NEEDS.find(x=>x[0]===ST.cat)[1];m.append(phraseList(it.slice().sort((a,b)=>(D.favs.includes(b)-D.favs.includes(a)))))}
+  }else if(s==='talk'){
+    m.append(phraseList(uniq([...D.favs,...TALK,...D.phrases])));
+  }else if(s==='mine'){
+    m.append(btn('+ НОВАЯ ФРАЗА','ok',()=>{ST.emode='save';ST.text='';ST.status='';ST.screen='edit';render()}));
+    if(!D.phrases.length)m.append(el('div','hint','Здесь будут ваши фразы. ★ — в избранное: избранное показывается первым в «Общении».'));
+    m.append(phraseList(D.phrases.slice(),{del:true}));
+  }else if(s==='edit'){editorView(m)}
+  else if(s==='msg'){messagesView(m)}
+  else if(s==='settings'){settingsView(m)}
+  if(s!=='home')bar.append(btn('← НАЗАД','sm',back));
+  bar.append(btn('ПОВТОРИТЬ ФРАЗУ','sm',()=>speak(last)));
+  rescan();
+}
+
+function editorView(m){
+  const t=ST.text,prefix=t.split(' ').pop(),cap=!t.trim()||/[.!?]$/.test(t.trim());
+  const set=v=>{ST.text=v;ST.status='';render()};
+  const box=el('div','tbox'+(t?'':' ph'),t||'Наберите текст…');m.append(box);
+  if(ST.status)m.append(el('div','status',ST.status));
+  const vocab=uniq([...D.phrases.flatMap(p=>p.split(/[ ,.!?]+/)).map(w=>w.toLowerCase()).filter(w=>w.length>2),...WORDS]);
+  let sug;
+  if(!prefix)sug=cap?STARTERS:STARTERS.map(x=>x.toLowerCase());
+  else sug=vocab.filter(w=>w.startsWith(prefix.toLowerCase())&&w!==prefix.toLowerCase()).slice(0,4);
+  const g0=el('div','row grp');
+  sug.slice(0,4).forEach(w=>g0.append(btn(w,'sm ok',()=>{
+    const base=t.slice(0,t.length-prefix.length),c=!base.trim()||/[.!?]$/.test(base.trim());
+    set(base+(c?w[0].toUpperCase()+w.slice(1):w.toLowerCase())+' ');
+  })));
+  if(sug.length)m.append(g0);
+  const rowOf=(arr,cls)=>{const r=el('div','row grp');arr.forEach(([l,f,c])=>r.append(btn(l,(cls||'sm')+' '+(c||''),f)));return r};
+  m.append(rowOf([['ПРОБЕЛ',()=>{if(t&&!t.endsWith(' '))set(t+' ')}],['⌫ БУКВА',()=>set(t.slice(0,-1))]]));
+  m.append(rowOf([['УДАЛИТЬ СЛОВО',()=>{const x=t.trimEnd(),i=x.lastIndexOf(' ');set(i<0?'':x.slice(0,i+1))}],['ОЧИСТИТЬ',()=>set('')]]));
+  m.append(rowOf([['ОЗВУЧИТЬ',()=>speak(t),'ok'],['СОХРАНИТЬ',()=>{ST.status=!t.trim()?'Сначала наберите текст.':addPhrase(t)?'Сохранено в «Мои фразы».':'Такая фраза уже есть.';render()}]]));
+  if(ST.emode==='msg')m.append(btn('ГОТОВО → К СООБЩЕНИЮ','ok sm',()=>{if(!t.trim()){ST.status='Сначала наберите текст.';render()}else{ST.msg=t.trim();ST.screen='msg';render()}}));
+  for(let i=0;i<LETTERS.length;i+=6){
+    const r=el('div','row grp');
+    LETTERS.slice(i,i+6).forEach(c=>r.append(btn(c,'key',()=>set(t+(cap?c:c.toLowerCase())))));
+    m.append(r);
+  }
+  m.append(rowOf(['.',',','?','!'].map(p=>[p,()=>set(t.trimEnd()+p+' ')]),'key'));
+}
+
+function messagesView(m){
+  const c=D.contacts[ST.contact];
+  if(!c){
+    m.append(el('div','hint',D.contacts.length?'Кому отправить?':'Добавьте близких: имя и номер. Список хранится только на этом телефоне.'));
+    D.contacts.forEach((x,i)=>{
+      const row=el('div','row');
+      row.append(btn(x.name+'\n'+x.phone,'grow',()=>{ST.contact=i;ST.msg=null;render()}));
+      row.append(btn('✕','sq',()=>confirmDlg('Удалить получателя?\n'+x.name,'УДАЛИТЬ',()=>{D.contacts.splice(i,1);save();render()})));
+      m.append(row);
+    });
+    m.append(btn('+ ДОБАВИТЬ ПОЛУЧАТЕЛЯ','ok sm',addContactDlg));
+  }else if(ST.msg===null){
+    m.append(el('div','hint','Кому: '+c.name+'. Выберите фразу или напишите своё.'));
+    m.append(btn('НАПИСАТЬ СВОЁ','ok sm',()=>{ST.emode='msg';ST.text='';ST.status='';ST.screen='edit';render()}));
+    m.append(phraseList(uniq([...D.favs,...D.phrases,...TALK,...NEEDS.flatMap(x=>x[1])]),{pick:p=>{ST.msg=p;render()}}));
+  }else{
+    m.append(el('div','hint','Кому: '+c.name+' ('+c.phone+')'));
+    m.append(el('div','tbox',ST.msg));
+    if(ST.status)m.append(el('div','status',ST.status));
+    m.append(btn('ОТПРАВИТЬ','ok',()=>confirmDlg('Открыть «Сообщения» для\n'+c.name+' ('+c.phone+'):\n\n'+ST.msg+'\n\nОтправка — кнопкой «Отправить» в «Сообщениях».','ОТКРЫТЬ',()=>{
+      ST.status='Откройте «Сообщения» и нажмите «Отправить».';
+      location.href='sms:'+c.phone.replace(/[^\d+]/g,'')+'&body='+encodeURIComponent(ST.msg);
+    })));
+  }
+}
+function addContactDlg(){
+  const n=el('input'),p=el('input');n.placeholder='Имя';p.placeholder='Телефон';p.type='tel';
+  modal([el('div','','Новый получатель'),n,p],[['СОХРАНИТЬ',()=>{
+    if(n.value.trim()&&(p.value.match(/\d/g)||[]).length>=5){D.contacts.push({name:n.value.trim(),phone:p.value.trim()});save();render()}
+  },'ok'],['ОТМЕНА',null,'gray']]);
+}
+
+function settingsView(m){
+  const step=(label,key,st,min,max,fmt)=>{
+    m.append(el('div','',label));
+    const r=el('div','row');
+    const val=el('div','tbox',fmt(S[key]));val.style.flex='2';val.style.minHeight='0';val.style.textAlign='center';
+    const ch=d=>{S[key]=Math.round(Math.min(max,Math.max(min,S[key]+d))*100)/100;save();render()};
+    r.append(btn('−','sm',()=>ch(-st)),val,btn('+','sm',()=>ch(st)));m.append(r);
+  };
+  m.append(el('h3','','Способ управления'));
+  m.append(btn((S.mode==='direct'?'✓ ':'')+'КАСАНИЕ / ВЗГЛЯД (системный Eye Tracking)','sm',()=>{S.mode='direct';save();render()}));
+  m.append(btn((S.mode==='scan'?'✓ ':'')+'СКАНИРОВАНИЕ (подсветка по очереди)','sm',()=>{S.mode='scan';save();render()}));
+  m.append(btn((S.blink?'✓ ':'')+'ВЫБОР МОРГАНИЕМ (камера)','sm',()=>{S.blink=!S.blink;save();if(S.blink)startBlink();else stopBlink();render()}));
+  m.append(el('div','hint','В режиме сканирования выбор подсвеченной кнопки — касание в любом месте экрана или моргание. Моргание работает только в режиме сканирования.'));
+  step('Скорость сканирования, сек','scanMs',250,1000,5000,v=>(v/1000).toFixed(2));
+  step('Длительность моргания для выбора, сек','holdMs',100,300,2000,v=>(v/1000).toFixed(1));
+  step('Чувствительность моргания (меньше = чувствительнее)','sens',0.05,0.2,0.9,v=>v.toFixed(2));
+  m.append(btn((S.preview?'✓ ':'')+'ПОКАЗЫВАТЬ КАМЕРУ В УГЛУ','sm gray',()=>{S.preview=!S.preview;save();render()}));
+  m.append(el('h3','','Голос'));
+  step('Скорость речи','rate',0.1,0.5,1.6,v=>v.toFixed(1));
+  step('Громкость','volume',0.1,0.2,1,v=>v.toFixed(1));
+  m.append(btn('ПРОВЕРИТЬ ГОЛОС','ok sm',()=>speak('Так звучит мой голос.')));
+  step('Размер текста','scale',0.1,0.9,1.5,v=>v.toFixed(1));
+  m.append(el('h3','','Важно'));
+  m.append(el('div','warn','Красная кнопка только произносит просьбу о помощи вслух. Она не вызывает экстренные службы.'));
+  m.append(el('div','warn','Сообщения: приложение открывает «Сообщения» с готовым текстом, отправляет человек в самих «Сообщениях».'));
+  m.append(el('div','hint','Управление взглядом: включите в iPhone «Настройки → Универсальный доступ → Eye Tracking», режим «Касание / взгляд».'));
+}
+
+/* ---------- сканирование ---------- */
+const SC={level:1,groups:[],idx:0,inner:[],ii:0,loops:0,timer:null,lock:0};
+function collect(){
+  const root=document.querySelector('.modal')||$('#app');const out=[];
+  root.querySelectorAll('.grp,.btn').forEach(e=>{
+    if(e.classList.contains('btn')){if(e.closest('.grp'))return;out.push([e])}
+    else{const b=[...e.querySelectorAll('.btn')];if(b.length)out.push(b)}
+  });return out;
+}
+function clearHl(){document.querySelectorAll('.hl').forEach(e=>e.classList.remove('hl'))}
+function showHl(){
+  clearHl();let items;
+  if(SC.level===1)items=SC.groups[SC.idx]||[];else items=[SC.inner[SC.ii]];
+  items.forEach(e=>{if(e){e.classList.add('hl')}});
+  if(items[0])items[0].scrollIntoView({block:'nearest'});
+}
+function rescan(){
+  clearInterval(SC.timer);clearHl();
+  if(S.mode!=='scan')return;
+  SC.groups=collect();SC.level=1;SC.idx=0;SC.lock=Date.now()+700;
+  if(!SC.groups.length)return;
+  showHl();
+  SC.timer=setInterval(()=>{
+    if(SC.level===1)SC.idx=(SC.idx+1)%SC.groups.length;
+    else{SC.ii++;if(SC.ii>=SC.inner.length){SC.ii=0;SC.loops++;if(SC.loops>=2){SC.level=1;SC.idx=0;}}}
+    showHl();
+  },S.scanMs);
+}
+function scanSelect(){
+  if(S.mode!=='scan'||Date.now()<SC.lock||!SC.groups.length)return;
+  SC.lock=Date.now()+600;
+  if(SC.level===1){
+    const g=SC.groups[SC.idx];
+    if(g.length===1){clearHl();g[0].click()}
+    else{SC.level=2;SC.inner=g;SC.ii=0;SC.loops=0;clearInterval(SC.timer);showHl();
+      SC.timer=setInterval(()=>{SC.ii++;if(SC.ii>=SC.inner.length){SC.ii=0;SC.loops++;if(SC.loops>=2){SC.level=1;SC.idx=0}}showHl()},S.scanMs)}
+  }else{const b=SC.inner[SC.ii];clearHl();b.click()}
+}
+document.addEventListener('click',e=>{
+  if(S.mode==='scan'&&e.isTrusted&&!/^(INPUT|TEXTAREA)$/.test(e.target.tagName)){e.preventDefault();e.stopPropagation();scanSelect()}
+},true);
+
+/* ---------- моргание (MediaPipe Face Landmarker) ---------- */
+let LM=null,stream=null,running=false,closedAt=0,fired=false,lastVT=-1;
+async function startBlink(){
+  if(running)return;
+  const hs=$('#hs');$('#hud').style.display=(S.blink&&S.preview)?'block':'none';
+  try{
+    hs.textContent='загрузка…';
+    if(!LM){
+      const V='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+      const vision=await import(V+'/vision_bundle.mjs');
+      const fs=await vision.FilesetResolver.forVisionTasks(V+'/wasm');
+      const base={modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'};
+      const opts={runningMode:'VIDEO',outputFaceBlendshapes:true,numFaces:1};
+      try{LM=await vision.FaceLandmarker.createFromOptions(fs,{...opts,baseOptions:{...base,delegate:'GPU'}})}
+      catch(e){LM=await vision.FaceLandmarker.createFromOptions(fs,{...opts,baseOptions:{...base,delegate:'CPU'}})}
+    }
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:320,height:240},audio:false});
+    const v=$('#cam');v.srcObject=stream;await v.play();
+    running=true;hs.textContent='ищу лицо…';loop();
+  }catch(err){
+    S.blink=false;save();$('#hud').style.display='none';
+    modal([el('div','','Камера для моргания не включилась.\n'+(err&&err.message?err.message:'')+'\n\nПроверьте разрешение на камеру в Safari и интернет при первом запуске.')],[['ПОНЯТНО',()=>{if(ST.screen==='settings')render()},'ok']]);
+  }
+}
+function stopBlink(){
+  running=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  $('#hud').style.display='none';
+}
+function loop(){
+  if(!running)return;
+  const v=$('#cam');
+  if(v.readyState>=2&&v.currentTime!==lastVT){
+    lastVT=v.currentTime;
+    try{
+      const r=LM.detectForVideo(v,performance.now());
+      const cats=r.faceBlendshapes&&r.faceBlendshapes[0]&&r.faceBlendshapes[0].categories;
+      if(!cats){closedAt=0;$('#hs').textContent='лицо не видно';$('#pb').style.width='0'}
+      else{
+        const g=n=>(cats.find(c=>c.categoryName===n)||{score:0}).score;
+        const closed=(g('eyeBlinkLeft')+g('eyeBlinkRight'))/2>S.sens;
+        const now=performance.now();
+        if(closed){
+          if(!closedAt)closedAt=now;
+          const p=Math.min(1,(now-closedAt)/S.holdMs);$('#pb').style.width=(p*100)+'%';
+          $('#hs').textContent='глаза закрыты';
+          if(p>=1&&!fired){fired=true;scanSelect()}
+        }else{closedAt=0;fired=false;$('#pb').style.width='0';$('#hs').textContent='глаза открыты'}
+      }
+    }catch(e){}
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ---------- запуск ---------- */
+$('#sos').onclick=()=>speak(EMERGENCY,true,2);
+$('#go').onclick=()=>{
+  $('#start').style.display='none';
+  if(window.speechSynthesis){speechSynthesis.getVoices();const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}
+  render();
+  if(S.blink&&S.mode==='scan')startBlink();
+};
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+render();
+</script>
+</body>
+</html>
